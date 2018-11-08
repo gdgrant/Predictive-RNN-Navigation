@@ -21,17 +21,16 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # Ignore Tensorflow startup warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL']='2'
 
+stimulus_access = stimulus.RoomStimulus()
 
 class Model:
 
     """ RNN model for supervised and reinforcement learning training """
 
-    def __init__(self, input_data, target_data, mask):
+    def __init__(self):
 
-        # Load input activity, target data, training mask, etc.
-        self.input_data         = tf.unstack(input_data, axis=0)
-        self.target_data        = tf.unstack(target_data, axis=0)
-        self.time_mask          = tf.unstack(mask, axis=0)
+        self.time_mask = tf.unstack(tf.ones([par['num_time_steps'],par['batch_size']]), axis=0)
+        self.reward_locations = tf.constant(np.array(stimulus_access.reward_locations))
 
         # Declare all Tensorflow variables
         self.declare_variables()
@@ -72,49 +71,59 @@ class Model:
             time to generate the network outputs """
 
         # Specify training method outputs
-        self.output = []
-        self.mask = []
-        self.pol_out = self.output  # For interchangeable use
-        self.val_out = []
-        self.action = []
-        self.reward = []
+        self.input_data = []
+        self.output     = []
+        self.mask       = []
+        self.pol_out    = []
+        self.val_out    = []
+        self.action     = []
+        self.reward     = []
+        self.agent_locs = []
         reward = tf.constant(np.zeros((par['batch_size'], par['n_val']), dtype = np.float32))
         action = tf.constant(np.zeros((par['batch_size'], par['n_pol']), dtype = np.float32))
         feedback_reward = tf.constant(np.zeros((par['batch_size'], par['n_val']), dtype = np.float32))
 
         # Initialize state records
-        self.h      = []
-        self.total_pred_error = [[] for _ in range(par['num_pred_cells'])]
-        self.stim_pred_error = [[] for _ in range(par['num_pred_cells'])]
-        self.rew_pred_error = [[] for _ in range(par['num_pred_cells'])]
-        self.act_pred_error = [[] for _ in range(par['num_pred_cells'])]
+        self.h                  = []
+        self.total_pred_error   = [[] for _ in range(par['num_pred_cells'])]
+        self.stim_pred_error    = [[] for _ in range(par['num_pred_cells'])]
+        self.rew_pred_error     = [[] for _ in range(par['num_pred_cells'])]
+        self.act_pred_error     = [[] for _ in range(par['num_pred_cells'])]
 
         # Initialize network state
-        h = [tf.zeros_like(par['h_init'][i]) for i in range(par['num_pred_cells'])]
-        c = [tf.zeros_like(par['h_init'][i]) for i in range(par['num_pred_cells'])]
-
+        h     = [tf.zeros_like(par['h_init'][i]) for i in range(par['num_pred_cells'])]
+        c     = [tf.zeros_like(par['h_init'][i]) for i in range(par['num_pred_cells'])]
         mask  = tf.constant(np.ones((par['batch_size'], 1), dtype = np.float32))
 
         self.expected_reward_vector = []
         self.actual_reward_vector = []
-        # Loop through the neural inputs, indexed in time
-        for stimulus_input, target, time_mask in zip(self.input_data, self.target_data, self.time_mask):
+        # Loop through time, procuring new inputs at the end of each time step
+        for t in range(par['num_time_steps']):
 
-            # we're assuming that predictive cells are arranged in a sequence
+            with tf.device('/cpu:0'):
+                inputs, = tf.py_func(stimulus_access.make_inputs, [], [tf.float32])
+                inputs  = tf.stop_gradient(tf.reshape(inputs, shape=[par['batch_size'], 5]))
+                self.agent_locs.append(tf.py_func(stimulus_access.get_agent_locs, [], [tf.float32]))
+            self.input_data.append(inputs)
+
+            # Iterate over sequene of predictive cells
             for i in range(par['num_pred_cells']):
                 # Compute the state of the hidden layer
-                # x is the input into the cell, y is the top-down activity projecting to cell
+                # x is cell input, y is top-down activity input
                 y = None if i == par['num_pred_cells']-1 else h[i+1]
-                x = stimulus_input if i == 0 else error_signal
-                x = tf.concat([x, reward*i, action*i], axis = -1)
+                x = inputs if i == 0 else error_signal
+                x = tf.concat([x, reward*i, action*i], axis=-1)
                 h[i], c[i], error_signal = self.predictive_cell(x, y, h[i], c[i], i)
 
-                es = tf.stack([error_signal[:,:par['n_input']+10], error_signal[:,par['n_input']+10:]], axis=-1)
+                # Determine error signal for each
+                es = tf.stack([error_signal[:,:par['n_input']+1+par['n_pol']], \
+                               error_signal[:,par['n_input']+1+par['n_pol']:]], axis=-1)
                 for ind in range(2):
                     self.stim_pred_error[i].append(tf.reduce_mean(es[:,:par['n_input'],ind]))
                     self.rew_pred_error[i].append(tf.reduce_mean(es[:,par['n_input']:par['n_input']+1,ind]))
                     self.act_pred_error[i].append(tf.reduce_mean(es[:,par['n_input']+1:par['n_input']+10,ind]))
                     self.total_pred_error[i].append(self.stim_pred_error[i][-1] + self.rew_pred_error[i][-1] + self.act_pred_error[i][-1])
+
                 error_signal = tf.concat([es[:,:par['n_input'],0], es[:,:par['n_input'],1]], axis=1)
                 error_signal = tf.maximum(error_signal[:,0::2], error_signal[:,1::2])
 
@@ -132,8 +141,15 @@ class Model:
             # Check for trial continuation (ends if previous reward was non-zero)
             continue_trial = tf.cast(tf.equal(reward, 0.), tf.float32)
             mask          *= continue_trial
-            feedback_reward = tf.reduce_sum(action*target, axis=1, keepdims=True)
-            reward         = feedback_reward*mask*tf.reshape(time_mask,[par['batch_size'], 1])
+
+            if t < par['num_time_steps']-2:
+                with tf.device('/cpu:0'):
+                    feedback_reward, = tf.py_func(stimulus_access.agent_action, [action], [tf.float32])
+                    feedback_reward  = tf.stop_gradient(tf.reshape(feedback_reward, shape=[par['batch_size'],1]))
+            else:
+                feedback_reward = tf.constant(par['failure_penalty'])
+
+            reward = feedback_reward*mask*tf.reshape(self.time_mask[t],[par['batch_size'], 1])
 
             # Record RL outputs
             self.pol_out.append(pol_out)
@@ -415,16 +431,10 @@ def reinforcement_learning(save_fn='test.pkl', gpu_id=None):
     # Reset Tensorflow graph before running anything
     tf.reset_default_graph()
 
-    # Define all placeholders
-    x, target, mask, pred_val, actual_action, advantage, mask = generate_placeholders()
-
     # Set up stimulus and accuracy recording
-    stim = stimulus.MultiStimulus()
-    accuracy_full = []
-    accuracy_grid = np.zeros([par['n_tasks'],par['n_tasks']])
+    accuracy_iter = []
     full_activity_list = []
     model_performance = {'reward': [], 'entropy_loss': [], 'val_loss': [], 'pol_loss': [], 'spike_loss': [], 'trial': [], 'task': []}
-    reward_matrix = np.zeros((par['n_tasks'], par['n_tasks']))
 
     # Display relevant parameters
     print_key_info()
@@ -435,8 +445,7 @@ def reinforcement_learning(save_fn='test.pkl', gpu_id=None):
         # Select CPU or GPU
         device = '/cpu:0' if gpu_id is None else '/gpu:0'
         with tf.device(device):
-            # Check order against args unpacking in model if editing
-            model = Model(x, target, mask)
+            model = Model()
 
         # Initialize variables and start the timer
         sess.run(tf.global_variables_initializer())
@@ -444,122 +453,91 @@ def reinforcement_learning(save_fn='test.pkl', gpu_id=None):
         sess.run(model.reset_prev_vars)
 
         # Begin training loop, iterating over tasks
-        #for task in range(par['n_tasks']):
-        for task in [0,3,5,2]:
-            accuracy_iter = []
-            task_start_time = time.time()
+        task_start_time = time.time()
 
-            for i in range(par['n_train_batches']):
+        for i in range(par['n_train_batches']):
 
-                # Generate a batch of stimulus data for training
-                name, input_data, _, mk, reward_data = stim.generate_trial(task)
-                mk = mk[...,np.newaxis]
+            stimulus_access.place_agents()
 
-                # Put together the feed dictionary
-                feed_dict = {x:input_data, target:reward_data, mask:mk}
-
-                # Calculate and apply gradients
-                if par['stabilization'] == 'pathint':
-                    _, _, _, pol_loss, val_loss, aux_loss, spike_loss, ent_loss, pred_err, stim_pred_err, \
-                        rew_pred_err, act_pred_err, h_list, reward_list, pred_loss, expected_reward, actual_reward = \
-                        sess.run([model.train_op, model.update_current_reward, model.update_small_omega, model.pol_loss, model.val_loss, \
-                        model.aux_loss, model.spike_loss, model.entropy_loss, model.total_pred_error, model.stim_pred_error, model.rew_pred_error, model.act_pred_error, \
-                        model.h, model.reward, model.pred_loss, model.expected_reward_vector, model.actual_reward_vector], feed_dict = feed_dict)
-                    if i>0:
-                        sess.run([model.update_small_omega])
-                    sess.run([model.update_previous_reward])
-                elif par['stabilization'] == 'EWC':
-                    _, _, pol_loss,val_loss, aux_loss, spike_loss, ent_loss, pred_err, stim_pred_err, rew_pred_err, act_pred_err, h_list, reward_list = \
-                        sess.run([model.train_op, model.update_current_reward, model.pol_loss, model.val_loss, \
-                        model.aux_loss, model.spike_loss, model.entropy_loss, model.total_pred_error, model.stim_pred_error, model.rew_pred_error, model.act_pred_error, \
-                        model.h, model.reward], feed_dict = feed_dict)
-
-                # Record accuracies
-                reward = np.stack(reward_list)
-                acc = np.mean(np.sum(reward>0,axis=0))
-                accuracy_iter.append(acc)
-                if i > 5000:
-                    if np.mean(accuracy_iter[-5000:]) > 0.98 or (i>25000 and np.mean(accuracy_iter[-20:]) > 0.95):
-                        print('Accuracy reached threshold')
-                        break
-
-                # Display network performance
-                if i%200 == 0:
-
-                    fig, ax = plt.subplots(1,3, figsize=[24,8])
-                    im0 = ax[0].imshow(expected_reward[:,:,0], aspect='auto', clim=(-np.abs(expected_reward).max(), np.abs(expected_reward).max()))
-                    ax[0].set_title('Expected Reward')
-                    im1 = ax[1].imshow(actual_reward[:,:,0], aspect='auto', clim=(par['fix_break_penalty'], par['correct_choice_reward']))
-                    ax[1].set_title('Actual Reward')
-                    diff = expected_reward[:,:,0] - actual_reward[:,:,0]
-                    im2 = ax[2].imshow(diff, aspect='auto', clim=(-np.abs(diff).max(), np.abs(diff).max()))
-                    ax[2].set_title('Expected - Actual')
-                    fig.colorbar(im0, ax=ax[0], orientation='horizontal', ticks=[-np.abs(expected_reward).max(),0,np.abs(expected_reward).max()])
-                    fig.colorbar(im1, ax=ax[1], orientation='horizontal', ticks=[par['fix_break_penalty'],0,par['correct_choice_reward']])
-                    fig.colorbar(im2, ax=ax[2], orientation='horizontal', ticks=[-np.abs(diff).max(),0,np.abs(diff).max()])
-                    plt.savefig('./savedir/reward_task{}_iter{}_v2.png'.format(task, i))
-                    plt.clf()
-                    plt.close()
-
-                    pe  = [float('{:7.5f}'.format(np.mean(pred_err[i]))) for i in range(len(pred_err))]
-                    spe = [float('{:7.5f}'.format(np.mean(stim_pred_err[i]))) for i in range(len(stim_pred_err))]
-                    rpe = [float('{:9.7f}'.format(np.mean(rew_pred_err[i]))) for i in range(len(rew_pred_err))]
-                    ape = [float('{:7.5f}'.format(np.mean(act_pred_err[i]))) for i in range(len(act_pred_err))]
-
-                    print('Iter: {:>5} | Task: {} | Accuracy: {:5.3f} | Aux Loss: {:7.5f} | Mean h: {:8.5f} | Time: {}'.format(\
-                        i, name, acc, aux_loss, np.mean(np.stack(h_list)), int(np.around(time.time() - task_start_time))))
-                    print('            | Pred Error: {:7.5f} | Total PE: {} | Stim PE: {} | Rew PE: {} | Act PE: {}'.format(pred_loss, pe, spe, rpe, ape))
-
-                    #print('Iter ', i, 'Task name ', name, ' accuracy', acc, ' aux loss', aux_loss, ' pred error', pe, 'pred loss', pred_loss, \
-                    #'mean h', np.mean(np.stack(h_list)), 'time ', np.around(time.time() - task_start_time))
-
-            # Update big omegaes, and reset other values before starting new task
+            # Calculate and apply gradients
             if par['stabilization'] == 'pathint':
-                big_omegas = sess.run([model.update_big_omega, model.big_omega_var])
-
-
+                _, _, _, pol_loss, val_loss, aux_loss, spike_loss, ent_loss, pred_err, stim_pred_err, \
+                    rew_pred_err, act_pred_err, h_list, reward_list, pred_loss, expected_reward, actual_reward, reward_locations, agent_locations, action = \
+                    sess.run([model.train_op, model.update_current_reward, model.update_small_omega, model.pol_loss, model.val_loss, \
+                    model.aux_loss, model.spike_loss, model.entropy_loss, model.total_pred_error, model.stim_pred_error, model.rew_pred_error, model.act_pred_error, \
+                    model.h, model.reward, model.pred_loss, model.expected_reward_vector, model.actual_reward_vector, \
+                    model.reward_locations, model.agent_locs, model.action])
+                if i>0:
+                    sess.run([model.update_small_omega])
+                sess.run([model.update_previous_reward])
             elif par['stabilization'] == 'EWC':
-                for n in range(par['EWC_fisher_num_batches']):
-                    name, input_data, _, mk, reward_data = stim.generate_trial(task)
-                    mk = mk[..., np.newaxis]
-                    big_omegas = sess.run([model.update_big_omega,model.big_omega_var], feed_dict = \
-                        {x:input_data, target: reward_data, gating:par['gating'][task], mask:mk})
+                _, _, pol_loss,val_loss, aux_loss, spike_loss, ent_loss, pred_err, stim_pred_err, rew_pred_err, act_pred_err, \
+                    h_list, reward_list, reward_locations, agent_locations, action = \
+                    sess.run([model.train_op, model.update_current_reward, model.pol_loss, model.val_loss, \
+                    model.aux_loss, model.spike_loss, model.entropy_loss, model.total_pred_error, model.stim_pred_error, model.rew_pred_error, model.act_pred_error, \
+                    model.h, model.reward, model.reward_locations, model.agent_locs, model.action])
 
-            # Test all tasks at the end of each learning session
-            num_reps = 10
-            task_activity_list = []
-            for task_prime in range(task+1):
-                for r in range(num_reps):
+            # Record accuracies
+            reward = np.stack(reward_list)
+            acc = np.mean(np.sum(reward>0,axis=0))
+            accuracy_iter.append(acc)
+            if i > 5000:
+                if np.mean(accuracy_iter[-5000:]) > 0.98 or (i>25000 and np.mean(accuracy_iter[-20:]) > 0.95):
+                    print('Accuracy reached threshold')
+                    break
 
-                    # make batch of training data
-                    name, input_data, _, mk, reward_data = stim.generate_trial(task_prime)
-                    mk = mk[..., np.newaxis]
+            # Display network performance
+            if i%200 == 0:
 
-                    reward_list, h = sess.run([model.reward, model.h], feed_dict = {x:input_data, target: reward_data, mask:mk})
+                fig, ax = plt.subplots(1,3, figsize=[24,8])
+                im0 = ax[0].imshow(expected_reward[:,:,0], aspect='auto', clim=(-np.abs(expected_reward).max(), np.abs(expected_reward).max()))
+                ax[0].set_title('Expected Reward')
+                im1 = ax[1].imshow(actual_reward[:,:,0], aspect='auto', clim=(-2,2))
+                ax[1].set_title('Actual Reward')
+                diff = expected_reward[:,:,0] - actual_reward[:,:,0]
+                im2 = ax[2].imshow(diff, aspect='auto', clim=(-np.abs(diff).max(), np.abs(diff).max()))
+                ax[2].set_title('Expected - Actual')
+                fig.colorbar(im0, ax=ax[0], orientation='horizontal', ticks=[-np.abs(expected_reward).max(),0,np.abs(expected_reward).max()])
+                fig.colorbar(im1, ax=ax[1], orientation='horizontal', ticks=[-2,0,2])
+                fig.colorbar(im2, ax=ax[2], orientation='horizontal', ticks=[-np.abs(diff).max(),0,np.abs(diff).max()])
+                plt.savefig('./savedir/reward_task{}_iter{}_v0.png'.format(par['task'], i))
+                plt.clf()
+                plt.close()
 
-                    reward = np.squeeze(np.stack(reward_list))
-                    reward_matrix[task,task_prime] += np.mean(np.sum(reward>0,axis=0))/num_reps
+                pe  = [float('{:7.5f}'.format(np.mean(pred_err[i]))) for i in range(len(pred_err))]
+                spe = [float('{:7.5f}'.format(np.mean(stim_pred_err[i]))) for i in range(len(stim_pred_err))]
+                rpe = [float('{:9.7f}'.format(np.mean(rew_pred_err[i]))) for i in range(len(rew_pred_err))]
+                ape = [float('{:7.5f}'.format(np.mean(act_pred_err[i]))) for i in range(len(act_pred_err))]
 
-                # Record network activity
-                task_activity_list.append(h)
+                print('Iter: {:>5} | Task: {} | Accuracy: {:5.3f} | Aux Loss: {:7.5f} | Mean h: {:8.5f} | Time: {}'.format(\
+                    i, par['task'], acc, aux_loss, np.mean(np.stack(h_list)), int(np.around(time.time() - task_start_time))))
+                print('            | Pred Error: {:7.5f} | Total PE: {} | Stim PE: {} | Rew PE: {} | Act PE: {}'.format(pred_loss, pe, spe, rpe, ape))
 
-            # Aggregate task after testing each task set
-            # Each of [all tasks] elements is [tasks tested, time steps, batch size hidden size]
-            full_activity_list.append(task_activity_list)
+                pickle.dump({'reward_locs':reward_locations,'agent_locs':stimulus_access.loc_history, 'actions':action}, open('./savedir/trajectory_iter{}.pkl'.format(i), 'wb'))
 
-            print('Accuracy grid after task {}:'.format(task))
-            print(reward_matrix[task,:])
 
-            results = {'reward_matrix': reward_matrix, 'par': par, 'activity': full_activity_list}
-            pickle.dump(results, open(par['save_dir'] + save_fn, 'wb') )
-            print('Analysis results saved in', save_fn)
-            print('')
+        """# Update big omegaes, and reset other values before starting new task
+        if par['stabilization'] == 'pathint':
+            big_omegas = sess.run([model.update_big_omega, model.big_omega_var])
 
-            # Reset the Adam Optimizer, and set the previous parameter values to their current values
-            sess.run(model.reset_adam_op)
-            sess.run(model.reset_prev_vars)
-            if par['stabilization'] == 'pathint':
-                sess.run(model.reset_small_omega)
+
+        elif par['stabilization'] == 'EWC':
+            for n in range(par['EWC_fisher_num_batches']):
+                name, input_data, _, mk, reward_data = stim.generate_trial(task)
+                mk = mk[..., np.newaxis]
+                big_omegas = sess.run([model.update_big_omega,model.big_omega_var], feed_dict = \
+                    {x:input_data, target: reward_data, gating:par['gating'][task], mask:mk})"""
+
+        #results = {'reward_matrix': reward_matrix, 'par': par, 'activity': full_activity_list}
+        #pickle.dump(results, open(par['save_dir'] + save_fn, 'wb') )
+        #print('Analysis results saved in', save_fn)
+        #print('')
+
+        # Reset the Adam Optimizer, and set the previous parameter values to their current values
+        sess.run(model.reset_adam_op)
+        sess.run(model.reset_prev_vars)
+        if par['stabilization'] == 'pathint':
+            sess.run(model.reset_small_omega)
 
     print('\nModel execution complete. (Reinforcement)')
 
@@ -567,19 +545,15 @@ def reinforcement_learning(save_fn='test.pkl', gpu_id=None):
 def print_key_info():
     """ Display requested information """
 
-    if par['training_method'] == 'SL':
-        key_info = ['synapse_config','spike_cost','weight_cost','entropy_cost','omega_c','omega_xi',\
-            'n_hidden','noise_rnn_sd','learning_rate','gating_type', 'gate_pct']
-    elif par['training_method'] == 'RL':
-        key_info = ['synapse_config','spike_cost','weight_cost','entropy_cost','omega_c','omega_xi',\
-            'n_hidden','noise_rnn_sd','learning_rate','discount_rate', 'mask_duration', 'stabilization'\
-            ,'gating_type', 'gate_pct','fix_break_penalty','wrong_choice_penalty',\
-            'correct_choice_reward','include_rule_signal']
-    print('Key info:')
-    print('-'*40)
+    key_info = ['synapse_config','spike_cost','weight_cost','entropy_cost','omega_c','omega_xi',\
+        'n_hidden','noise_rnn_sd','learning_rate','discount_rate', 'stabilization',\
+        'gating_type', 'gate_pct','include_rule_signal','task','num_nav_tuned','room_width','room_height',\
+        'rewards','failure_penalty']
+    print('\nKey info:')
+    print('-'*60)
     for k in key_info:
-        print(k, ' ', par[k])
-    print('-'*40)
+        print(k.ljust(30), par[k])
+    print('-'*60)
 
 
 def print_reinforcement_results(iter_num, model_performance):

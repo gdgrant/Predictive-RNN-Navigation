@@ -25,10 +25,6 @@ par = {
     'architecture'          : 'LSTM',       # 'BIO', 'LSTM'
 
     # Network shape
-    'num_motion_tuned'      : 48,
-    'num_fix_tuned'         : 4,
-    'num_rule_tuned'        : 0,
-    'n_val'                 : 1,
     'include_rule_signal'   : False,
     'n_hidden'              : [48, 48],
 
@@ -46,15 +42,17 @@ par = {
     'noise_rnn_sd'          : 0.05,
 
     # Task specs
-    'task'                  : 'multistim',
-    'n_tasks'               : 20,
-    'multistim_trial_length': 2000,
-    'mask_duration'         : 0,
-    'dead_time'             : 200,
-
-    # Tuning function data
-    'num_motion_dirs'       : 8,
-    'tuning_height'         : 4.0,        # magnitude scaling factor for von Mises
+    'task'                  : 'basic',      # Currently doesn't do anything; placeholder
+    'num_nav_tuned'         : 5,
+    'num_fix_tuned'         : 0,
+    'num_rule_tuned'        : 0,
+    'n_val'                 : 1,
+    'num_actions'           : 5,
+    'room_width'            : 4,
+    'room_height'           : 5,
+    'rewards'               : [1., 2.,],
+    'failure_penalty'       : -1.,
+    'trial_length'          : 500,
 
     # Cost values
     'spike_cost'            : 0.,
@@ -70,7 +68,7 @@ par = {
     'U_std'                 : 0.45,
 
     # Training specs
-    'batch_size'            : 1024,
+    'batch_size'            : 256,
     'n_train_batches'       : 50000, #50000,
 
     # Omega parameters
@@ -82,14 +80,6 @@ par = {
     'gating_type'           : None, # 'XdG', 'partial', 'split', None
     'gate_pct'              : 0.8,  # Num. gated hidden units for 'XdG' only
     'n_subnetworks'         : 4,    # Num. subnetworks for 'split' only
-
-    # Stimulus parameters
-    'room_width'            : 4,
-    'room_height'           : 5,
-    'rewards'               : [1., 2.,],
-    'fix_break_penalty'     : -1.,
-    'wrong_choice_penalty'  : -0.01,
-    'correct_choice_reward' : 1.,
 
     # Save paths
     'save_fn'               : 'model_results.pkl',
@@ -130,11 +120,11 @@ def update_dependencies():
     par['spike_cost'] = 0.
 
     # Number of input neurons
-    par['n_input'] = par['num_motion_tuned'] + par['num_fix_tuned'] + par['num_rule_tuned']
+    par['n_input'] = par['num_nav_tuned'] + par['num_fix_tuned'] + par['num_rule_tuned']
 
     # Number of output neurons
-    par['n_output'] = par['num_motion_dirs'] + 1
-    par['n_pol'] = par['num_motion_dirs'] + 1
+    par['n_output'] = par['num_actions'] + 1
+    par['n_pol'] = par['num_actions'] + 1
 
     # Number of input neurons
     par['num_pred_cells'] = len(par['n_hidden'])
@@ -142,7 +132,7 @@ def update_dependencies():
     par['n_LSTM_input'] = []
     # input into predictive cell will consist of feedforward input plus "dopamine" reward signal
 
-    par['extra_n_in'] = 1 + par['n_pol']
+    par['extra_n_in'] = par['n_pol'] + 1
     for i in range(par['num_pred_cells']):
             par['n_cell_input'].append((par['n_input'] + par['extra_n_in']))
 
@@ -159,7 +149,7 @@ def update_dependencies():
     par['noise_in'] = np.sqrt(2/par['alpha_neuron'])*par['noise_in_sd']
 
     # Set trial step length
-    par['num_time_steps'] = par['multistim_trial_length']//par['dt']
+    par['num_time_steps'] = par['trial_length']//par['dt']
 
     # Set up gating vectors for hidden layer
     #gen_gating()
