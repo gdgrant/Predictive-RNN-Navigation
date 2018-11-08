@@ -405,125 +405,6 @@ class Model:
         self.update_big_omega = tf.group(*fisher_ops)
 
 
-def supervised_learning(save_fn='test.pkl', gpu_id=None):
-    """ Run supervised learning training """
-
-    # Isolate requested GPU
-    if gpu_id is not None:
-        os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id
-
-    # Reset Tensorflow graph before running anything
-    tf.reset_default_graph()
-
-    # Define all placeholders
-    x = tf.placeholder(tf.float32, [par['num_time_steps'], par['batch_size'], par['n_input']], 'stim')
-    y = tf.placeholder(tf.float32, [par['num_time_steps'], par['batch_size'], par['n_output']], 'out')
-    m = tf.placeholder(tf.float32, [par['num_time_steps'], par['batch_size']], 'mask')
-    g = tf.placeholder(tf.float32, [par['n_hidden']], 'gating')
-
-    # Set up stimulus and accuracy recording
-    stim = stimulus.MultiStimulus()
-    accuracy_full = []
-    accuracy_grid = np.zeros([par['n_tasks'],par['n_tasks']])
-    full_activity_list = []
-
-    # Display relevant parameters
-    print_key_info()
-
-    # Start Tensorflow session
-    with tf.Session() as sess:
-
-        # Select CPU or GPU
-        device = '/cpu:0' if gpu_id is None else '/gpu:0'
-        with tf.device(device):
-            model = Model(x, y, m, g)
-
-        # Initialize variables and start the timer
-        sess.run(tf.global_variables_initializer())
-        t_start = time.time()
-        sess.run(model.reset_prev_vars)
-
-        # Begin training loop, iterating over tasks
-        for task in range(par['n_tasks']):
-            for i in range(par['n_train_batches']):
-
-                # Generate a batch of stimulus data for training
-                name, stim_in, y_hat, mk, _ = stim.generate_trial(task)
-
-                # Put together the feed dictionary
-                feed_dict = {x:stim_in, y:y_hat, g:par['gating'][task], m:mk}
-
-                # Run the model using one of the available stabilization methods
-                if par['stabilization'] == 'pathint':
-                    _, _, loss, AL, spike_loss, output = sess.run([model.train_op, \
-                        model.update_small_omega, model.pol_loss, model.aux_loss, \
-                        model.spike_loss, model.output], feed_dict=feed_dict)
-                elif par['stabilization'] == 'EWC':
-                    _, loss, AL, output = sess.run([model.train_op, model.pol_loss, \
-                        model.aux_loss, model.output], feed_dict=feed_dict)
-
-                # Display network performance
-                if i%500 == 0:
-                    acc = get_perf(y_hat, output, mk)
-                    print('Iter {} | Task name {} | Accuracy {} | Loss {} | Aux Loss {} | Spike Loss {}'.format(\
-                        i, name, acc, loss, AL, spike_loss))
-
-            # Test all tasks at the end of each learning session
-            num_reps = 10
-            task_activity_list = []
-            for task_prime in range(task+1):
-                for r in range(num_reps):
-
-                    # Generate stimulus batch for testing
-                    name, stim_in, y_hat, mk, _ = stim.generate_trial(task_prime)
-
-                    # Assemble feed dict and run model
-                    feed_dict = {x:stim_in, g:par['gating'][task_prime]}
-                    output, h = sess.run([model.output, model.h], feed_dict=feed_dict)
-
-                    # Record results
-                    acc = get_perf(y_hat, output, mk)
-                    accuracy_grid[task,task_prime] += acc/num_reps
-
-                # Record network activity
-                task_activity_list.append(h)
-
-            # Aggregate task after testing each task set
-            # Each of [all tasks] elements is [tasks tested, time steps, batch size hidden size]
-            full_activity_list.append(task_activity_list)
-
-            # Display accuracy grid after testing is complete
-            print('Accuracy grid after task {}:'.format(task))
-            print(accuracy_grid[task,:])
-            print()
-
-            # Update big omegas
-            if par['stabilization'] == 'pathint':
-                _, big_omegas = sess.run([model.update_big_omega, model.big_omega_var])
-            elif par['stabilization'] == 'EWC':
-                for n in range(par['EWC_fisher_num_batches']):
-                    name, stim_in, y_hat, mk, _ = stim.generate_trial(task)
-                    feed_dict = {x:stim_in, g:par['gating'][task_prime]}
-                    _, big_omegas = sess.run([model.update_big_omega, model.big_omega-var], \
-                        feed_dict = feed_dict)
-
-            # Reset the Adam Optimizer and save previous parameter values as current ones
-            sess.run(model.reset_adam_op)
-            sess.run(model.reset_prev_vars)
-            if par['stabilization'] == 'pathint':
-                sess.run(model.reset_small_omega)
-
-            # Reset weights between tasks if called upon
-            if par['reset_weights']:
-                sess.run(model.reset_weights)
-
-        if par['save_analysis']:
-            save_results = {'task': task, 'accuracy_grid': accuracy_grid, 'par': par, 'activity': full_activity_list}
-            pickle.dump(save_results, open(par['save_dir'] + save_fn, 'wb'))
-
-    print('\nModel execution complete. (Supervised)')
-
-
 def reinforcement_learning(save_fn='test.pkl', gpu_id=None):
     """ Run reinforcement learning training """
 
@@ -759,7 +640,7 @@ def main(save_fn='testing', gpu_id=None):
 
     # Identify learning method and run accordingly
     if par['training_method'] == 'SL':
-        supervised_learning(save_fn, gpu_id)
+        raise Exception('This code does not support supervised learning at this time.')
     elif par['training_method'] == 'RL':
         reinforcement_learning(save_fn, gpu_id)
     else:
