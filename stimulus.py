@@ -22,37 +22,38 @@ class RoomStimulus:
 
     def initialize_rooms(self):
 
-        self.rooms = np.zeros([par['batch_size'], par['room_height'], par['room_width']])
-        locs       = np.random.choice(par['room_width']*par['room_height'], size=len(par['rewards']), replace=False)
+        # Two sets of reward locations:  Random and default
+        rand_locs = np.random.choice(par['room_width']*par['room_height'], size=len(par['rewards']), replace=False)
+        default_locs = [[1,1], [par['room_height']-2,par['room_width']-2], [1,par['room_width']-2], [par['room_height']-2],1]
 
-        self.default_reward_locations = \
-            [[1,1],[par['room_height']-2,par['room_width']-2],[1,par['room_width']-2],[par['room_height']-2],1]
-
+        # Assign one stimulus location per reward
         self.stim_loc = []
-        self.reward_vectors = []
         for i in range(len(par['rewards'])):
 
             if par['use_default_rew_locs']:
-                if i >= len(self.default_reward_locations):
+                if i >= len(default_locs):
                     raise Exception('Implement more default reward locations!')
-                rew_loc = self.default_reward_locations[i]
+                rew_loc = default_locs[i]
             else:
-                rew_loc = [int(locs[i]//par['room_width']), int(locs[i]%par['room_width'])]
+                rew_loc = [int(rand_locs[i]//par['room_width']), int(rand_locs[i]%par['room_width'])]
 
-            self.rooms[:,rew_loc[0],rew_loc[1]] = 1.
             self.stim_loc.append(rew_loc)
 
-            self.reward_vectors.append(np.random.choice([0,1], p=[0.6,0.4],size=par['num_rew_tuned']))
-
+        # One locations are assigned, place rewards at those locations
         self.place_rewards()
 
 
     def place_rewards(self):
 
+        # Set the reward locations to the allocated stimulus locations, in random order
         self.reward_locations = []
-        for j in range(par['batch_size']):
-            ind = np.random.choice(2)
-            self.reward_locations.append([self.stim_loc[ind],self.stim_loc[1-ind]])
+        self.reward_vectors = []
+        for _ in range(par['batch_size']):
+            trial_set = [self.stim_loc[ind] for ind in np.random.permutation(len(par['rewards']))]
+            self.reward_locations.append(trial_set)
+
+        print(np.array(self.reward_locations).shape)
+        quit()
 
 
     def place_agents(self):
@@ -91,8 +92,26 @@ class RoomStimulus:
 
         for i in range(par['batch_size']):
 
-            reward_vector = self.get_reward_vector(self.identify_reward(self.agent_loc[i], i))
-            inputs[i,par['num_nav_tuned']:par['num_nav_tuned']+par['num_rew_tuned']] += reward_vector
+            trial_locs = self.reward_locations[i]
+            self.agent_loc[i]
+
+            # Reward index = index of the reward value
+            # We want/need to match the reward index to the current location
+            # Perhaps a dictionary
+            #    Where the keys are tuples indicating locations
+            #    And the items are the reward vectors + reward values
+            reward_index = '  placeholder strings aren\'t indices  '
+            inputs[i,par['num_nav_tuned']:par['num_nav_tuned']+par['num_rew_tuned'] = par['reward_vectors'][reward_index]
+
+
+
+            #reward_vector = self.get_reward_vector(self.identify_reward(self.agent_loc[i], i))
+            #inputs[i,par['num_nav_tuned']:par['num_nav_tuned']+par['num_rew_tuned']] += reward_vector
+
+            if self.identify_reward(self.agent_loc[i],i) is not None:
+                inputs[i,par['num_nav_tuned']:par['num_nav_tuned']+self.identify_reward(self.agent_loc[i], i)] += 1.
+
+
 
         return np.float32(inputs)
 
@@ -136,3 +155,8 @@ class RoomStimulus:
 
     def get_agent_locs(self):
         return np.array(self.agent_loc).astype(np.float32)
+
+
+if __name__ == '__main__':
+    r = RoomStimulus()
+    r.make_inputs()

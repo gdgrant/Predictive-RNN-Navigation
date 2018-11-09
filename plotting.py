@@ -7,6 +7,7 @@ from itertools import product
 
 #data = pickle.load(open('./savedir/navigation_trajectories_v1.pkl', 'rb'))
 data = pickle.load(open('./savedir/navigation_with_discount_plus_neurons_trajectories_v0.pkl', 'rb'))
+data = pickle.load(open('./savedir/navigation_better_rewards_trajectories_v0.pkl', 'rb'))
 data = data[-1]
 
 print('Data from iteration {}.'.format(data['iter']))
@@ -97,8 +98,5 @@ def density():
         plt.title('Most Likely Action')
         plt.show()
 
-
-    # else:
-        # plt.show(smiley_face)
 
 density()
