@@ -150,6 +150,12 @@ def update_dependencies():
     # Set trial step length
     par['num_time_steps'] = par['trial_length']//par['dt']
 
+    # Specify one-hot vectors matching with each reward
+    condition = True
+    while condition:
+        par['reward_vectors'] = np.random.choice([0,1], size=[len(par['rewards']), par['num_rew_tuned']])
+        condition = (np.mean(np.std(par['reward_vectors'], axis=0)) == 0.)
+
     # Set up gating vectors for hidden layer
     #gen_gating()
 
