@@ -102,7 +102,7 @@ class Model:
 
             with tf.device('/cpu:0'):
                 inputs, = tf.py_func(stimulus_access.make_inputs, [], [tf.float32])
-                inputs  = tf.stop_gradient(tf.reshape(inputs, shape=[par['batch_size'], 5]))
+                inputs  = tf.stop_gradient(tf.reshape(inputs, shape=[par['batch_size'], par['n_input']]))
                 self.agent_locs.append(tf.py_func(stimulus_access.get_agent_locs, [], [tf.float32]))
             self.input_data.append(inputs)
 
@@ -112,6 +112,7 @@ class Model:
                 # x is cell input, y is top-down activity input
                 y = None if i == par['num_pred_cells']-1 else h[i+1]
                 x = inputs if i == 0 else error_signal
+
                 x = tf.concat([x, reward*i, action*i], axis=-1)
                 h[i], c[i], error_signal = self.predictive_cell(x, y, h[i], c[i], i)
 
@@ -144,7 +145,7 @@ class Model:
 
             if t < par['num_time_steps']-2:
                 with tf.device('/cpu:0'):
-                    feedback_reward, = tf.py_func(stimulus_access.agent_action, [action], [tf.float32])
+                    feedback_reward, = tf.py_func(stimulus_access.agent_action, [action, mask], [tf.float32])
                     feedback_reward  = tf.stop_gradient(tf.reshape(feedback_reward, shape=[par['batch_size'],1]))
             else:
                 feedback_reward = tf.constant(par['failure_penalty'])
@@ -434,6 +435,7 @@ def reinforcement_learning(save_fn='test.pkl', gpu_id=None):
     # Set up stimulus and accuracy recording
     accuracy_iter = []
     full_activity_list = []
+    agent_records = []
     model_performance = {'reward': [], 'entropy_loss': [], 'val_loss': [], 'pol_loss': [], 'spike_loss': [], 'trial': [], 'task': []}
 
     # Display relevant parameters
@@ -458,6 +460,7 @@ def reinforcement_learning(save_fn='test.pkl', gpu_id=None):
         for i in range(par['n_train_batches']):
 
             stimulus_access.place_agents()
+            stimulus_access.place_rewards()
 
             # Calculate and apply gradients
             if par['stabilization'] == 'pathint':
@@ -479,7 +482,8 @@ def reinforcement_learning(save_fn='test.pkl', gpu_id=None):
 
             # Record accuracies
             reward = np.stack(reward_list)
-            acc = np.mean(np.sum(reward>0,axis=0))
+            rew = np.mean(np.sum(reward, axis=0))
+            acc = np.mean(np.sum(reward>0, axis=0))
             accuracy_iter.append(acc)
             if i > 5000:
                 if np.mean(accuracy_iter[-5000:]) > 0.98 or (i>25000 and np.mean(accuracy_iter[-20:]) > 0.95):
@@ -489,31 +493,38 @@ def reinforcement_learning(save_fn='test.pkl', gpu_id=None):
             # Display network performance
             if i%200 == 0:
 
-                fig, ax = plt.subplots(1,3, figsize=[24,8])
-                im0 = ax[0].imshow(expected_reward[:,:,0], aspect='auto', clim=(-np.abs(expected_reward).max(), np.abs(expected_reward).max()))
-                ax[0].set_title('Expected Reward')
-                im1 = ax[1].imshow(actual_reward[:,:,0], aspect='auto', clim=(-2,2))
-                ax[1].set_title('Actual Reward')
-                diff = expected_reward[:,:,0] - actual_reward[:,:,0]
-                im2 = ax[2].imshow(diff, aspect='auto', clim=(-np.abs(diff).max(), np.abs(diff).max()))
-                ax[2].set_title('Expected - Actual')
-                fig.colorbar(im0, ax=ax[0], orientation='horizontal', ticks=[-np.abs(expected_reward).max(),0,np.abs(expected_reward).max()])
-                fig.colorbar(im1, ax=ax[1], orientation='horizontal', ticks=[-2,0,2])
-                fig.colorbar(im2, ax=ax[2], orientation='horizontal', ticks=[-np.abs(diff).max(),0,np.abs(diff).max()])
-                plt.savefig('./savedir/reward_task{}_iter{}_v0.png'.format(par['task'], i))
-                plt.clf()
-                plt.close()
+                context = '_iter{}'.format(i)
 
-                pe  = [float('{:7.5f}'.format(np.mean(pred_err[i]))) for i in range(len(pred_err))]
-                spe = [float('{:7.5f}'.format(np.mean(stim_pred_err[i]))) for i in range(len(stim_pred_err))]
-                rpe = [float('{:9.7f}'.format(np.mean(rew_pred_err[i]))) for i in range(len(rew_pred_err))]
-                ape = [float('{:7.5f}'.format(np.mean(act_pred_err[i]))) for i in range(len(act_pred_err))]
+                if par['save_plots']:
+                    fig, ax = plt.subplots(1,3, figsize=[24,8])
+                    im0 = ax[0].imshow(expected_reward[:,:,0], aspect='auto', clim=(-np.abs(expected_reward).max(), np.abs(expected_reward).max()))
+                    ax[0].set_title('Expected Reward')
+                    im1 = ax[1].imshow(actual_reward[:,:,0], aspect='auto', clim=(-2,2))
+                    ax[1].set_title('Actual Reward')
+                    diff = expected_reward[:,:,0] - actual_reward[:,:,0]
+                    im2 = ax[2].imshow(diff, aspect='auto', clim=(-np.abs(diff).max(), np.abs(diff).max()))
+                    ax[2].set_title('Expected - Actual')
+                    fig.colorbar(im0, ax=ax[0], orientation='horizontal', ticks=[-np.abs(expected_reward).max(),0,np.abs(expected_reward).max()])
+                    fig.colorbar(im1, ax=ax[1], orientation='horizontal', ticks=[-2,0,2])
+                    fig.colorbar(im2, ax=ax[2], orientation='horizontal', ticks=[-np.abs(diff).max(),0,np.abs(diff).max()])
 
-                print('Iter: {:>5} | Task: {} | Accuracy: {:5.3f} | Aux Loss: {:7.5f} | Mean h: {:8.5f} | Time: {}'.format(\
-                    i, par['task'], acc, aux_loss, np.mean(np.stack(h_list)), int(np.around(time.time() - task_start_time))))
-                print('            | Pred Error: {:7.5f} | Total PE: {} | Stim PE: {} | Rew PE: {} | Act PE: {}'.format(pred_loss, pe, spe, rpe, ape))
+                    fn = par['plot_dir'] + par['save_fn'] + '_rewards' + context +par['save_fn_suffix'] + '.png'
+                    plt.savefig(fn)
+                    plt.clf()
+                    plt.close()
 
-                pickle.dump({'reward_locs':reward_locations,'agent_locs':stimulus_access.loc_history, 'actions':action}, open('./savedir/trajectory_iter{}.pkl'.format(i), 'wb'))
+                pe  = str([float('{:7.5f}'.format(np.mean(pred_err[i]))) for i in range(len(pred_err))]).ljust(20)
+                spe = str([float('{:7.5f}'.format(np.mean(stim_pred_err[i]))) for i in range(len(stim_pred_err))]).ljust(20)
+                rpe = str([float('{:7.5f}'.format(np.mean(rew_pred_err[i]))) for i in range(len(rew_pred_err))]).ljust(20)
+                ape = str([float('{:7.5f}'.format(np.mean(act_pred_err[i]))) for i in range(len(act_pred_err))]).ljust(20)
+
+                print('Iter: {:>7} | Task: {} | Accuracy: {:5.3f} | Reward: {:5.3f} | Aux Loss: {:7.5f} | Mean h: {:8.5f}'.format(\
+                    i, par['task'], acc, rew, aux_loss, np.mean(np.stack(h_list))))
+                print('Time: {:>7} | Total PE: {} | Stim PE: {} | Rew PE: {} | Act PE: {}\n'.format(int(np.around(time.time() - task_start_time)), pe, spe, rpe, ape))
+
+                fn = par['save_dir'] + par['save_fn'] + '_trajectories' + par['save_fn_suffix'] + '.pkl'
+                agent_records.append({'iter':i, 'reward_locs':reward_locations,'agent_locs':stimulus_access.loc_history, 'actions':action})
+                pickle.dump(agent_records, open(fn.format(i), 'wb'))
 
 
         """# Update big omegaes, and reset other values before starting new task

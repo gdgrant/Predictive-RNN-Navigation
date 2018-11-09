@@ -13,11 +13,13 @@ global par
 par = {
     # Setup parameters
     'save_dir'              : './savedir/',
-    'stabilization'         : 'pathint',    # 'EWC' (Kirkpatrick method) or 'pathint' (Zenke method)
-    'save_analysis'         : False,
-    'reset_weights'         : False,        # reset weights between tasks
+    'plot_dir'              : './plotdir/',
+    'save_fn'               : 'navigation',
+    'save_fn_suffix'        : '_v0',
+    'save_plots'            : True,
 
     # Network configuration
+    'stabilization'         : 'pathint',    # 'EWC' (Kirkpatrick method) or 'pathint' (Zenke method)
     'synapse_config'        : 'std_stf',     # Full is 'std_stf'
     'exc_inh_prop'          : 0.8,          # Literature 0.8, for EI off 1
     'var_delay'             : False,
@@ -26,14 +28,14 @@ par = {
 
     # Network shape
     'include_rule_signal'   : False,
-    'n_hidden'              : [48, 48],
+    'n_hidden'              : [100,100],
 
     # Timings and rates
     'dt'                    : 20,
-    'learning_rate'         : 4e-3,
+    'learning_rate'         : 1e-3,
     'membrane_time_constant': 100,
     'connection_prob'       : 1.0,
-    'discount_rate'         : 0.,
+    'discount_rate'         : 0.95,
 
     # Variance values
     'clip_max_grad_val'     : 1.0,
@@ -43,7 +45,7 @@ par = {
 
     # Task specs
     'task'                  : 'basic',      # Currently doesn't do anything; placeholder
-    'num_nav_tuned'         : 5,
+    'num_nav_tuned'         : 4,
     'num_fix_tuned'         : 0,
     'num_rule_tuned'        : 0,
     'n_val'                 : 1,
@@ -51,6 +53,7 @@ par = {
     'room_width'            : 4,
     'room_height'           : 5,
     'rewards'               : [1., 2.,],
+    'use_default_rew_locs'  : True,
     'failure_penalty'       : -1.,
     'trial_length'          : 500,
 
@@ -69,7 +72,7 @@ par = {
 
     # Training specs
     'batch_size'            : 256,
-    'n_train_batches'       : 50000, #50000,
+    'n_train_batches'       : 500000, #50000,
 
     # Omega parameters
     'omega_c'               : 0.,
@@ -80,11 +83,6 @@ par = {
     'gating_type'           : None, # 'XdG', 'partial', 'split', None
     'gate_pct'              : 0.8,  # Num. gated hidden units for 'XdG' only
     'n_subnetworks'         : 4,    # Num. subnetworks for 'split' only
-
-    # Save paths
-    'save_fn'               : 'model_results.pkl',
-    'ckpt_save_fn'          : 'model.ckpt',
-    'ckpt_load_fn'          : 'model.ckpt',
 
 }
 
@@ -120,11 +118,12 @@ def update_dependencies():
     par['spike_cost'] = 0.
 
     # Number of input neurons
-    par['n_input'] = par['num_nav_tuned'] + par['num_fix_tuned'] + par['num_rule_tuned']
+    par['num_rew_tuned'] = len(par['rewards'])
+    par['n_input'] = par['num_nav_tuned'] + par['num_rew_tuned'] + par['num_fix_tuned'] + par['num_rule_tuned']
 
     # Number of output neurons
-    par['n_output'] = par['num_actions'] + 1
-    par['n_pol'] = par['num_actions'] + 1
+    par['n_output'] = par['num_actions']
+    par['n_pol'] = par['num_actions']
 
     # Number of input neurons
     par['num_pred_cells'] = len(par['n_hidden'])
@@ -132,7 +131,7 @@ def update_dependencies():
     par['n_LSTM_input'] = []
     # input into predictive cell will consist of feedforward input plus "dopamine" reward signal
 
-    par['extra_n_in'] = par['n_pol'] + 1
+    par['extra_n_in'] = par['n_pol'] + 1    # Policy + reward
     for i in range(par['num_pred_cells']):
             par['n_cell_input'].append((par['n_input'] + par['extra_n_in']))
 
