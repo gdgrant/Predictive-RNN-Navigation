@@ -513,10 +513,10 @@ def reinforcement_learning(save_fn='test.pkl', gpu_id=None):
                     plt.clf()
                     plt.close()
 
-                pe  = str([float('{:7.5f}'.format(np.mean(pred_err[i]))) for i in range(len(pred_err))]).ljust(20)
-                spe = str([float('{:7.5f}'.format(np.mean(stim_pred_err[i]))) for i in range(len(stim_pred_err))]).ljust(20)
-                rpe = str([float('{:7.5f}'.format(np.mean(rew_pred_err[i]))) for i in range(len(rew_pred_err))]).ljust(20)
-                ape = str([float('{:7.5f}'.format(np.mean(act_pred_err[i]))) for i in range(len(act_pred_err))]).ljust(20)
+                pe  = str([float('{:7.5f}'.format(np.mean(pred_err[i]))) for i in range(len(pred_err))]).ljust(19)
+                spe = str([float('{:7.5f}'.format(np.mean(stim_pred_err[i]))) for i in range(len(stim_pred_err))]).ljust(19)
+                rpe = str([float('{:7.5f}'.format(np.mean(rew_pred_err[i]))) for i in range(len(rew_pred_err))]).ljust(19)
+                ape = str([float('{:7.5f}'.format(np.mean(act_pred_err[i]))) for i in range(len(act_pred_err))]).ljust(19)
 
                 print('Iter: {:>7} | Task: {} | Accuracy: {:5.3f} | Reward: {:5.3f} | Aux Loss: {:7.5f} | Mean h: {:8.5f}'.format(\
                     i, par['task'], acc, rew, aux_loss, np.mean(np.stack(h_list))))
