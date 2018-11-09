@@ -29,6 +29,7 @@ class RoomStimulus:
             [[1,1],[par['room_height']-2,par['room_width']-2],[1,par['room_width']-2],[par['room_height']-2],1]
 
         self.stim_loc = []
+        self.reward_vectors = []
         for i in range(len(par['rewards'])):
 
             if par['use_default_rew_locs']:
@@ -40,6 +41,8 @@ class RoomStimulus:
 
             self.rooms[:,rew_loc[0],rew_loc[1]] = 1.
             self.stim_loc.append(rew_loc)
+
+            self.reward_vectors.append(np.random.choice([0,1], p=[0.6,0.4],size=par['num_rew_tuned']))
 
         self.place_rewards()
 
@@ -69,6 +72,14 @@ class RoomStimulus:
             return None
 
 
+    def get_reward_vector(self, reward_index):
+
+        if reward_index is not None:
+            return self.reward_vectors[reward_index]
+        else:
+            return 0
+
+
     def make_inputs(self):
 
         # Inputs contain information for batch x (d1, d2, d3, d4, on_stim)
@@ -79,9 +90,9 @@ class RoomStimulus:
         inputs[:,3] = [par['room_width'] - agent[1] for agent in self.agent_loc]
 
         for i in range(par['batch_size']):
-            for n in range(par['num_rew_tuned']):
-                m = n + par['num_nav_tuned']
-                inputs[i,m] = 1 if self.identify_reward(self.agent_loc[i], i) == n else 0
+
+            reward_vector = self.get_reward_vector(self.identify_reward(self.agent_loc[i], i)])
+            inputs[i,par['num_nav_tuned']:par['num_nav_tuned']+par['num_rew_tuned']] += reward_vector
 
         return np.float32(inputs)
 
