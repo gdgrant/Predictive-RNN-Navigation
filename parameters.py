@@ -46,6 +46,7 @@ par = {
     # Task specs
     'task'                  : 'basic',      # Currently doesn't do anything; placeholder
     'num_nav_tuned'         : 4,
+    'num_rew_tuned'         : 10,
     'num_fix_tuned'         : 0,
     'num_rule_tuned'        : 0,
     'n_val'                 : 1,
@@ -118,7 +119,6 @@ def update_dependencies():
     par['spike_cost'] = 0.
 
     # Number of input neurons
-    par['num_rew_tuned'] = len(par['rewards'])
     par['n_input'] = par['num_nav_tuned'] + par['num_rew_tuned'] + par['num_fix_tuned'] + par['num_rule_tuned']
 
     # Number of output neurons
