@@ -91,7 +91,7 @@ class RoomStimulus:
 
         for i in range(par['batch_size']):
 
-            reward_vector = self.get_reward_vector(self.identify_reward(self.agent_loc[i], i)])
+            reward_vector = self.get_reward_vector(self.identify_reward(self.agent_loc[i], i))
             inputs[i,par['num_nav_tuned']:par['num_nav_tuned']+par['num_rew_tuned']] += reward_vector
 
         return np.float32(inputs)
