@@ -30,7 +30,6 @@ class Model:
     def __init__(self):
 
         self.time_mask = tf.unstack(tf.ones([par['num_time_steps'],par['batch_size']]), axis=0)
-        self.reward_locations = tf.constant(np.array(stimulus_access.reward_locations))
 
         # Declare all Tensorflow variables
         self.declare_variables()
