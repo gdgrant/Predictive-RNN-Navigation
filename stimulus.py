@@ -23,7 +23,7 @@ class RoomStimulus:
 
         # Two sets of reward locations:  Random and default
         rand_locs = np.random.choice(par['room_width']*par['room_height'], size=len(par['rewards']), replace=False)
-        default_locs = [[1,1], [par['room_height']-2,par['room_width']-2], [1,par['room_width']-2], [par['room_height']-2],1]
+        default_locs = [[0,0], [par['room_height']-2,par['room_width']-2], [1,par['room_width']-2], [par['room_height']-2],1]
 
         # Assign one stimulus location per reward
         self.stim_loc = []
