@@ -51,12 +51,12 @@ par = {
     'num_rule_tuned'        : 0,
     'n_val'                 : 1,
     'num_actions'           : 5,
-    'room_width'            : 4,
-    'room_height'           : 5,
-    'rewards'               : [1.,2.],
+    'room_width'            : 2,
+    'room_height'           : 2,
+    'rewards'               : [1.],
     'use_default_rew_locs'  : True,
-    'failure_penalty'       : -1.,
-    'trial_length'          : 500,
+    'failure_penalty'       : 0.,
+    'trial_length'          : 300,
 
     # Cost values
     'spike_cost'            : 0.,
@@ -110,7 +110,7 @@ def update_dependencies():
     ###
     ### Putting together network structure
     ###
-    c = 0.001
+    c = 0.05
 
     print('Using LSTM networks; setting to EI to False')
     par['EI'] = False
