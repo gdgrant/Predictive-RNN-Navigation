@@ -105,7 +105,9 @@ class Model:
                 self.agent_locs.append(tf.py_func(stimulus_access.get_agent_locs, [], [tf.float32]))
             self.input_data.append(inputs)
 
-            # Iterate over sequene of predictive cells
+            h[-1], c[-1] = self.predictive_cell(self.input_data[-1], None, h[-1], c[-1], -1)
+
+            """# Iterate over sequene of predictive cells
             for i in range(par['num_pred_cells']):
                 # Compute the state of the hidden layer
                 # x is cell input, y is top-down activity input
@@ -125,7 +127,7 @@ class Model:
                     self.total_pred_error[i].append(self.stim_pred_error[i][-1] + self.rew_pred_error[i][-1] + self.act_pred_error[i][-1])
 
                 error_signal = tf.concat([es[:,:par['n_input'],0], es[:,:par['n_input'],1]], axis=1)
-                error_signal = tf.maximum(error_signal[:,0::2], error_signal[:,1::2])
+                error_signal = tf.maximum(error_signal[:,0::2], error_signal[:,1::2])"""
 
             self.actual_reward_vector.append(reward)
 
@@ -169,13 +171,14 @@ class Model:
         """ Using the appropriate recurrent cell
             architecture, compute the hidden state """
 
-        if cell_num == 1:
+        """if cell_num == 1:
             self.expected_reward_vector.append((h @ self.var_dict['W_pred'][cell_num] + self.var_dict['b_pred'][cell_num])[:,par['n_input']:par['n_input']+1])
 
         pos_err = tf.nn.relu(x - h @ self.var_dict['W_pred'][cell_num] - self.var_dict['b_pred'][cell_num])
         neg_err = tf.nn.relu(h @ self.var_dict['W_pred'][cell_num] + self.var_dict['b_pred'][cell_num] - x)
         error_signal = tf.concat([pos_err, neg_err], axis = -1)
-        rnn_input = error_signal if y is None else tf.concat([error_signal, y], axis = -1)
+        rnn_input = error_signal if y is None else tf.concat([error_signal, y], axis = -1)"""
+        rnn_input = x
 
         # Compute LSTM state
         # f : forgetting gate, i : input gate,
@@ -190,7 +193,7 @@ class Model:
         h = o * tf.tanh(c)
 
         #error_signal = pos_err + neg_err
-        return h, c, error_signal
+        return h, c #, error_signal
 
 
     def optimize(self):
@@ -519,7 +522,7 @@ def reinforcement_learning(save_fn='test.pkl', gpu_id=None):
 
                 print('Iter: {:>7} | Task: {} | Accuracy: {:5.3f} | Reward: {:5.3f} | Aux Loss: {:7.5f} | Mean h: {:8.5f}'.format(\
                     i, par['task'], acc, rew, aux_loss, np.mean(np.stack(h_list))))
-                print('Time: {:>7} | Total PE: {} | Stim PE: {} | Rew PE: {} | Act PE: {}\n'.format(int(np.around(time.time() - task_start_time)), pe, spe, rpe, ape))
+                #print('Time: {:>7} | Total PE: {} | Stim PE: {} | Rew PE: {} | Act PE: {}\n'.format(int(np.around(time.time() - task_start_time)), pe, spe, rpe, ape))
 
                 fn = par['save_dir'] + par['save_fn'] + '_trajectories' + par['save_fn_suffix'] + '.pkl'
                 agent_records.append({'iter':i, 'reward_locs':stimulus_access.reward_locations,'agent_locs':stimulus_access.loc_history, 'actions':action})

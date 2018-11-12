@@ -16,7 +16,7 @@ par = {
     'plot_dir'              : './plotdir/',
     'save_fn'               : 'navigation',
     'save_fn_suffix'        : '_v0',
-    'save_plots'            : True,
+    'save_plots'            : False,
 
     # Network configuration
     'stabilization'         : 'pathint',    # 'EWC' (Kirkpatrick method) or 'pathint' (Zenke method)
@@ -28,7 +28,7 @@ par = {
 
     # Network shape
     'include_rule_signal'   : False,
-    'n_hidden'              : [100,100],
+    'n_hidden'              : [100],
 
     # Timings and rates
     'dt'                    : 20,
@@ -53,7 +53,7 @@ par = {
     'num_actions'           : 5,
     'room_width'            : 4,
     'room_height'           : 5,
-    'rewards'               : [1., 2.,],
+    'rewards'               : [1.,2.],
     'use_default_rew_locs'  : True,
     'failure_penalty'       : -1.,
     'trial_length'          : 500,
@@ -63,7 +63,7 @@ par = {
     'weight_cost'           : 0.,
     'entropy_cost'          : 0.0001,
     'val_cost'              : 0.01,
-    'error_cost'            : 1.,
+    'error_cost'            : 0.,
 
     # Synaptic plasticity specs
     'tau_fast'              : 200,
@@ -72,7 +72,7 @@ par = {
     'U_std'                 : 0.45,
 
     # Training specs
-    'batch_size'            : 256,
+    'batch_size'            : 512,
     'n_train_batches'       : 500000, #50000,
 
     # Omega parameters
@@ -133,11 +133,11 @@ def update_dependencies():
 
     par['extra_n_in'] = par['n_pol'] + 1    # Policy + reward
     for i in range(par['num_pred_cells']):
-            par['n_cell_input'].append((par['n_input'] + par['extra_n_in']))
+            par['n_cell_input'].append((par['n_input']))
 
     for i in range(par['num_pred_cells']-1):
         par['n_LSTM_input'].append(2*par['n_cell_input'][i] + par['n_hidden'][i-1])
-    par['n_LSTM_input'].append(2*par['n_cell_input'][-1])
+    par['n_LSTM_input'].append(par['n_cell_input'][-1])
 
     # Specify time step in seconds and neuron time constant
     par['dt_sec'] = par['dt']/1000
@@ -154,7 +154,7 @@ def update_dependencies():
     condition = True
     while condition:
         par['reward_vectors'] = np.random.choice([0,1], size=[len(par['rewards']), par['num_rew_tuned']])
-        condition = (np.mean(np.std(par['reward_vectors'], axis=0)) == 0.)
+        condition = (np.mean(np.std(par['reward_vectors'], axis=0)) == 0.) and len(par['rewards']) != 1
 
     # Set up gating vectors for hidden layer
     #gen_gating()
