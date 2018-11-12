@@ -5,7 +5,6 @@ import copy
 
 # Actions that can be taken
 #   Move up, down, left, right
-#   Do nothing
 #   Pick up reward
 
 print('Using \'Room Stim\' stimulus file.')
@@ -131,7 +130,7 @@ if __name__ == '__main__':
 
     ### Diagnostics
     r = RoomStimulus()
-    
+
     inp = r.make_inputs()
     inpsum = np.sum(inp[:,4:], axis=1)
 
