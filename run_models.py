@@ -21,7 +21,7 @@ def try_model(save_fn):
 ###############################################################################
 
 updates = {
-    'save_fn'           : 'navigation_better_rewards',
+    'save_fn'           : 'navigation_fixed_vectors',
     'save_fn_suffix'    : '_v0',
 }
 

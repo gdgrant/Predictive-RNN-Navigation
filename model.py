@@ -464,20 +464,20 @@ def reinforcement_learning(save_fn='test.pkl', gpu_id=None):
             # Calculate and apply gradients
             if par['stabilization'] == 'pathint':
                 _, _, _, pol_loss, val_loss, aux_loss, spike_loss, ent_loss, pred_err, stim_pred_err, \
-                    rew_pred_err, act_pred_err, h_list, reward_list, pred_loss, expected_reward, actual_reward, reward_locations, agent_locations, action = \
+                    rew_pred_err, act_pred_err, h_list, reward_list, pred_loss, expected_reward, actual_reward, agent_locations, action = \
                     sess.run([model.train_op, model.update_current_reward, model.update_small_omega, model.pol_loss, model.val_loss, \
                     model.aux_loss, model.spike_loss, model.entropy_loss, model.total_pred_error, model.stim_pred_error, model.rew_pred_error, model.act_pred_error, \
                     model.h, model.reward, model.pred_loss, model.expected_reward_vector, model.actual_reward_vector, \
-                    model.reward_locations, model.agent_locs, model.action])
+                    model.agent_locs, model.action])
                 if i>0:
                     sess.run([model.update_small_omega])
                 sess.run([model.update_previous_reward])
             elif par['stabilization'] == 'EWC':
                 _, _, pol_loss,val_loss, aux_loss, spike_loss, ent_loss, pred_err, stim_pred_err, rew_pred_err, act_pred_err, \
-                    h_list, reward_list, reward_locations, agent_locations, action = \
+                    h_list, reward_list, agent_locations, action = \
                     sess.run([model.train_op, model.update_current_reward, model.pol_loss, model.val_loss, \
                     model.aux_loss, model.spike_loss, model.entropy_loss, model.total_pred_error, model.stim_pred_error, model.rew_pred_error, model.act_pred_error, \
-                    model.h, model.reward, model.reward_locations, model.agent_locs, model.action])
+                    model.h, model.reward, model.agent_locs, model.action])
 
             # Record accuracies
             reward = np.stack(reward_list)
@@ -522,7 +522,7 @@ def reinforcement_learning(save_fn='test.pkl', gpu_id=None):
                 print('Time: {:>7} | Total PE: {} | Stim PE: {} | Rew PE: {} | Act PE: {}\n'.format(int(np.around(time.time() - task_start_time)), pe, spe, rpe, ape))
 
                 fn = par['save_dir'] + par['save_fn'] + '_trajectories' + par['save_fn_suffix'] + '.pkl'
-                agent_records.append({'iter':i, 'reward_locs':reward_locations,'agent_locs':stimulus_access.loc_history, 'actions':action})
+                agent_records.append({'iter':i, 'reward_locs':stimulus_access.reward_locations,'agent_locs':stimulus_access.loc_history, 'actions':action})
                 pickle.dump(agent_records, open(fn.format(i), 'wb'))
 
 
