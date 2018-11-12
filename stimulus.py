@@ -45,15 +45,12 @@ class RoomStimulus:
 
     def place_rewards(self):
 
-        # Set the reward locations to the allocated stimulus locations, in random order
         self.reward_locations = []
-        self.reward_vectors = []
-        for _ in range(par['batch_size']):
-            trial_set = [self.stim_loc[ind] for ind in np.random.permutation(len(par['rewards']))]
+        for i in range(par['batch_size']):
+            trial_set = {}
+            for r, loc in enumerate([self.stim_loc[ind] for ind in np.random.permutation(len(par['rewards']))]):
+                trial_set[tuple(loc)] = {'rew':par['rewards'][r], 'vec':par['reward_vectors'][r]}
             self.reward_locations.append(trial_set)
-
-        print(np.array(self.reward_locations).shape)
-        quit()
 
 
     def place_agents(self):
@@ -67,18 +64,11 @@ class RoomStimulus:
 
     def identify_reward(self, location, i):
 
-        try:
-            return self.reward_locations[i].index(location)
-        except ValueError:
-            return None
-
-
-    def get_reward_vector(self, reward_index):
-
-        if reward_index is not None:
-            return self.reward_vectors[reward_index]
+        if tuple(location) in self.reward_locations[i].keys():
+            data = self.reward_locations[i][tuple(location)]
+            return data['rew'], data['vec']
         else:
-            return 0
+            return None, None
 
 
     def make_inputs(self):
@@ -91,27 +81,9 @@ class RoomStimulus:
         inputs[:,3] = [par['room_width'] - agent[1] for agent in self.agent_loc]
 
         for i in range(par['batch_size']):
-
-            trial_locs = self.reward_locations[i]
-            self.agent_loc[i]
-
-            # Reward index = index of the reward value
-            # We want/need to match the reward index to the current location
-            # Perhaps a dictionary
-            #    Where the keys are tuples indicating locations
-            #    And the items are the reward vectors + reward values
-            reward_index = '  placeholder strings aren\'t indices  '
-            inputs[i,par['num_nav_tuned']:par['num_nav_tuned']+par['num_rew_tuned'] = par['reward_vectors'][reward_index]
-
-
-
-            #reward_vector = self.get_reward_vector(self.identify_reward(self.agent_loc[i], i))
-            #inputs[i,par['num_nav_tuned']:par['num_nav_tuned']+par['num_rew_tuned']] += reward_vector
-
-            if self.identify_reward(self.agent_loc[i],i) is not None:
-                inputs[i,par['num_nav_tuned']:par['num_nav_tuned']+self.identify_reward(self.agent_loc[i], i)] += 1.
-
-
+            _, vec = self.identify_reward(self.agent_loc[i], i)
+            if vec is not None:
+                inputs[i,par['num_nav_tuned']:par['num_nav_tuned']+par['num_rew_tuned']] = vec
 
         return np.float32(inputs)
 
@@ -142,11 +114,9 @@ class RoomStimulus:
                 self.agent_loc[i][0] -= 1
             elif a == 4:
                 # Input 5 = Pick Reward
-                rewarded = self.identify_reward(self.agent_loc[i], i)
-                if rewarded is not None:
-                    reward[i] = self.rewards[rewarded]
-                else:
-                    reward[i] = -0.1
+                rew, _ = self.identify_reward(self.agent_loc[i], i)
+                if rew is not None:
+                    reward[i] = rew
 
         self.loc_history.append(copy.deepcopy(self.agent_loc))
 
@@ -158,5 +128,16 @@ class RoomStimulus:
 
 
 if __name__ == '__main__':
+
+    ### Diagnostics
     r = RoomStimulus()
-    r.make_inputs()
+    
+    inp = r.make_inputs()
+    inpsum = np.sum(inp[:,4:], axis=1)
+
+    act = np.zeros([par['batch_size'], par['n_output']])
+    act[:,4] = 1
+    rew = r.agent_action(act, np.ones(par['batch_size']))
+
+    print(np.mean(np.minimum(1, inpsum)))       # Check placement
+    print(np.mean(rew==1.), np.mean(rew==2.))   # Check rewards
