@@ -21,8 +21,10 @@ def try_model(save_fn):
 ###############################################################################
 
 updates = {
-    'save_fn'           : 'navigation_fixed_vectors',
+    'save_fn'           : 'testing',
     'save_fn_suffix'    : '_v0',
+    'entropy_cost'          : 0.0001,
+    'val_cost'              : 0.1,
 }
 
 update_parameters(updates)
