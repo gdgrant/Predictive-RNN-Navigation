@@ -144,12 +144,12 @@ class Model:
             continue_trial = tf.cast(tf.equal(reward, 0.), tf.float32)
             mask          *= continue_trial
 
-            if t < par['num_time_steps']-2:
-                with tf.device('/cpu:0'):
-                    feedback_reward, = tf.py_func(stimulus_access.agent_action, [action, mask], [tf.float32])
-                    feedback_reward  = tf.stop_gradient(tf.reshape(feedback_reward, shape=[par['batch_size'],1]))
-            else:
-                feedback_reward = tf.constant(par['failure_penalty'])
+            #if t < par['num_time_steps']-2:
+            with tf.device('/cpu:0'):
+                feedback_reward, = tf.py_func(stimulus_access.agent_action, [action, mask], [tf.float32])
+                feedback_reward  = tf.stop_gradient(tf.reshape(feedback_reward, shape=[par['batch_size'],1]))
+            #else:
+            #    feedback_reward = tf.constant(par['failure_penalty'])
 
             reward = feedback_reward*mask*tf.reshape(self.time_mask[t],[par['batch_size'], 1])
 
