@@ -118,7 +118,6 @@ class RoomStimulus:
                     reward[i] = rew
 
         self.loc_history.append(copy.deepcopy(self.agent_loc))
-
         return np.float32(reward)
 
 
@@ -127,6 +126,8 @@ class RoomStimulus:
 
 
 if __name__ == '__main__':
+
+    import matplotlib.pyplot as plt
 
     ### Diagnostics
     r = RoomStimulus()
@@ -140,3 +141,25 @@ if __name__ == '__main__':
 
     print(np.mean(np.minimum(1, inpsum)))       # Check placement
     print(np.mean(rew==1.), np.mean(rew==2.))   # Check rewards
+
+    plt.imshow(inp, aspect='auto')
+    plt.colorbar()
+    plt.show()
+
+    act = np.zeros([par['batch_size'], par['n_output']])
+    act[:,1] = 1
+    r.agent_action(act, np.ones(par['batch_size']))
+
+    inp = r.make_inputs()
+    plt.imshow(inp, aspect='auto')
+    plt.colorbar()
+    plt.show()
+
+    act = np.zeros([par['batch_size'], par['n_output']])
+    act[:,3] = 1
+    r.agent_action(act, np.ones(par['batch_size']))
+
+    inp = r.make_inputs()
+    plt.imshow(inp, aspect='auto')
+    plt.colorbar()
+    plt.show()

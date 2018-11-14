@@ -28,7 +28,7 @@ par = {
 
     # Network shape
     'include_rule_signal'   : False,
-    'n_hidden'              : [100],
+    'n_hidden'              : 200,
 
     # Timings and rates
     'dt'                    : 20,
@@ -61,7 +61,7 @@ par = {
     # Cost values
     'spike_cost'            : 0.,
     'weight_cost'           : 0.,
-    'entropy_cost'          : 0.0001,
+    'entropy_cost'          : 0.000,
     'val_cost'              : 0.01,
     'error_cost'            : 0.,
 
@@ -125,20 +125,6 @@ def update_dependencies():
     par['n_output'] = par['num_actions']
     par['n_pol'] = par['num_actions']
 
-    # Number of input neurons
-    par['num_pred_cells'] = len(par['n_hidden'])
-    par['n_cell_input'] = []
-    par['n_LSTM_input'] = []
-    # input into predictive cell will consist of feedforward input plus "dopamine" reward signal
-
-    par['extra_n_in'] = par['n_pol'] + 1    # Policy + reward
-    for i in range(par['num_pred_cells']):
-            par['n_cell_input'].append((par['n_input']))
-
-    for i in range(par['num_pred_cells']-1):
-        par['n_LSTM_input'].append(2*par['n_cell_input'][i] + par['n_hidden'][i-1])
-    par['n_LSTM_input'].append(par['n_cell_input'][-1])
-
     # Specify time step in seconds and neuron time constant
     par['dt_sec'] = par['dt']/1000
     par['alpha_neuron'] = np.float32(par['dt'])/par['membrane_time_constant']
@@ -156,66 +142,30 @@ def update_dependencies():
         par['reward_vectors'] = np.random.choice([0,1], size=[len(par['rewards']), par['num_rew_tuned']])
         condition = (np.mean(np.std(par['reward_vectors'], axis=0)) == 0.) and len(par['rewards']) != 1
 
-    # Set up gating vectors for hidden layer
-    #gen_gating()
-
     ###
     ### Setting up weights, biases, masks, etc.
     ###
 
     # Specify initial RNN state
-    par['h_init'] = []
-    for i in range(par['num_pred_cells']):
-        par['h_init'].append(0.1*np.ones((par['batch_size'], par['n_hidden'][i]), dtype=np.float32))
-
+    par['h_init'] = 0.1*np.ones((par['batch_size'], par['n_hidden']), dtype=np.float32)
 
     # Initialize RL-specific weights
-    par['W_pol_out_init'] = np.float32(np.random.uniform(-c, c, size = [par['n_hidden'][-1], par['n_pol']]))
+    par['W_pol_out_init'] = np.float32(np.random.uniform(-c, c, size = [par['n_hidden'], par['n_pol']]))
     par['b_pol_out_init'] = np.zeros((1,par['n_pol']), dtype = np.float32)
 
-    par['W_val_out_init'] = np.float32(np.random.uniform(-c, c, size = [par['n_hidden'][-1], par['n_val']]))
+    par['W_val_out_init'] = np.float32(np.random.uniform(-c, c, size = [par['n_hidden'], par['n_val']]))
     par['b_val_out_init'] = np.zeros((1,par['n_val']), dtype = np.float32)
 
     ### Setting up LSTM weights and biases
-
-    LSTM_var_names = ['Wf', 'Wi', 'Wo', 'Wc', 'W_pred', 'Uf', 'Ui', 'Uo', 'Uc', 'bf', 'bi', 'bo', 'bc', 'b_pred']
+    LSTM_var_names = ['Wf', 'Wi', 'Wo', 'Wc', 'Uf', 'Ui', 'Uo', 'Uc', 'bf', 'bi', 'bo', 'bc']
     for name in LSTM_var_names:
-        par[name + '_init'] = []
-        for i in range(par['num_pred_cells']):
-            if name == 'W_pred':
-                par[name + '_init'].append(np.float32(np.random.uniform(-c, c, size = [par['n_hidden'][i], par['n_cell_input'][i]])))
-            elif name == 'b_pred':
-                par[name + '_init'].append(np.float32(np.random.uniform(-c, c, size = [1, par['n_cell_input'][i]])))
-            elif name.startswith('W'):
-                par[name + '_init'].append(np.float32(np.random.uniform(-c, c, size = [par['n_LSTM_input'][i], par['n_hidden'][i]])))
-            elif name.startswith('U'):
-                par[name + '_init'].append(np.float32(np.random.uniform(-c, c, size = [par['n_hidden'][i], par['n_hidden'][i]])))
-            elif name.startswith('b'):
-                par[name + '_init'].append(np.float32(np.random.uniform(-c, c, size = [1, par['n_hidden'][i]])))
+        if name.startswith('W'):
+            par[name + '_init'] = np.float32(np.random.uniform(-c, c, size = [par['n_input'], par['n_hidden']]))
+        elif name.startswith('U'):
+            par[name + '_init'] = np.float32(np.random.uniform(-c, c, size = [par['n_hidden'], par['n_hidden']]))
+        elif name.startswith('b'):
+            par[name + '_init'] = np.float32(np.random.uniform(-c, c, size = [1, par['n_hidden']]))
 
-
-def gen_gating():
-    """
-    Generate the gating signal to applied to all hidden units
-    """
-    par['gating'] = []
-
-    for t in range(par['n_tasks']):
-        gating_task = np.zeros(par['n_hidden'], dtype=np.float32)
-        for i in range(par['n_hidden']):
-
-            if par['gating_type'] == 'XdG':
-                if np.random.rand() < 1-par['gate_pct']:
-                    gating_task[i] = 1
-
-            elif par['gating_type'] == 'split':
-                if t%par['n_subnetworks'] == i%par['n_subnetworks']:
-                    gating_layer[i] = 1
-
-            elif par['gating_type'] is None:
-                gating_task[i] = 1
-
-        par['gating'].append(gating_task)
 
 
 def initialize_weight(dims, connection_prob):
