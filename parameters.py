@@ -2,6 +2,7 @@
 
 import numpy as np
 from itertools import product, chain
+from testing import action_transform
 
 print("\n--> Loading parameters...")
 
@@ -51,9 +52,9 @@ par = {
     'num_rule_tuned'        : 0,
     'n_val'                 : 1,
     'num_actions'           : 5,
-    'room_width'            : 2,
-    'room_height'           : 2,
-    'rewards'               : [1.],
+    'room_width'            : 6,
+    'room_height'           : 5,
+    'rewards'               : [1.,2.],
     'use_default_rew_locs'  : True,
     'failure_penalty'       : 0.,
     'trial_length'          : 300,
@@ -61,7 +62,7 @@ par = {
     # Cost values
     'spike_cost'            : 0.,
     'weight_cost'           : 0.,
-    'entropy_cost'          : 0.000,
+    'entropy_cost'          : 0.01,
     'val_cost'              : 0.01,
     'error_cost'            : 0.,
 
@@ -72,7 +73,7 @@ par = {
     'U_std'                 : 0.45,
 
     # Training specs
-    'batch_size'            : 512,
+    'batch_size'            : 128,
     'n_train_batches'       : 500000, #50000,
 
     # Omega parameters
@@ -136,11 +137,27 @@ def update_dependencies():
     # Set trial step length
     par['num_time_steps'] = par['trial_length']//par['dt']
 
+    # State initialization
+    par['state_init'] = np.float32(np.zeros([par['batch_size'],4]))
+    for i in range(par['batch_size']):
+        par['state_init'][i,np.random.choice(4)] = 1.
+
+    # Action transform reference
+    par['x_transform'] = np.zeros([par['num_actions'],par['num_actions']]).astype(np.float32)
+    par['x_transform'][0,0] = 1
+    par['x_transform'][2,2] = -1
+
+    par['y_transform'] = np.zeros([par['num_actions'],par['num_actions']]).astype(np.float32)
+    par['y_transform'][1,1] = 1
+    par['y_transform'][3,3] = -1
+
     # Specify one-hot vectors matching with each reward
     condition = True
     while condition:
-        par['reward_vectors'] = np.random.choice([0,1], size=[len(par['rewards']), par['num_rew_tuned']])
-        condition = (np.mean(np.std(par['reward_vectors'], axis=0)) == 0.) and len(par['rewards']) != 1
+        par['reward_vector_refs'] = np.random.choice([0,1], size=[len(par['rewards']), par['num_rew_tuned']])
+        condition = (np.mean(np.std(par['reward_vector_refs'], axis=0)) == 0.) and len(par['rewards']) != 1
+
+    refresh_reward_locations()
 
     ###
     ### Setting up weights, biases, masks, etc.
@@ -166,6 +183,32 @@ def update_dependencies():
         elif name.startswith('b'):
             par[name + '_init'] = np.float32(np.random.uniform(-c, c, size = [1, par['n_hidden']]))
 
+
+def refresh_reward_locations():
+
+    par['reward_scores'] = np.float32(np.zeros([par['batch_size'], par['room_width'], par['room_height']]))
+    par['reward_vectors'] = np.float32(np.zeros([par['batch_size'], par['room_width'], par['room_height'], par['num_rew_tuned']]))
+    par['reward_locations'] = np.float32(np.zeros([par['batch_size'], 2]))
+
+    par['reward_positions'] = [[1,1], [par['room_width']-2, par['room_height']-2]]
+
+    for i in range(par['batch_size']):
+        reward_order = np.random.permutation(len(par['rewards']))
+        for j, ind in enumerate(reward_order):
+
+            locs = par['reward_positions'][j]
+            rew = par['rewards'][ind]
+            vec = par['reward_vector_refs'][ind]
+            
+            par['reward_scores'][i,locs[0],locs[1]] = rew
+            par['reward_vectors'][i,locs[0],locs[1],:] = vec
+            par['reward_locations'][i,:] = [locs[0], locs[1]]
+
+    par['starting_locations'] = \
+        np.stack([np.random.choice(par['room_width'], size=par['batch_size']), \
+        np.random.choice(par['room_height'], size=par['batch_size'])], axis=1)
+
+    return par['starting_locations'], par['reward_scores'], par['reward_vectors']
 
 
 def initialize_weight(dims, connection_prob):

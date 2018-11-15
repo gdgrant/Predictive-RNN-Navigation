@@ -24,13 +24,71 @@ class Model:
 
     """ RNN model for supervised and reinforcement learning training """
 
-    def __init__(self):
+    def __init__(self, starting_locations, reward_scores, reward_vectors):
 
         self.time_mask = tf.unstack(tf.ones([par['num_time_steps'],par['batch_size']]), axis=0)
+        self.locations = tf.cast(starting_locations, tf.int32)
+        self.location_history = [self.locations]
+        self.reward_scores = reward_scores
+        self.reward_vectors = reward_vectors
 
+        self.define_stimulus()
         self.declare_variables()
         self.rnn_cell_loop()
         self.optimize()
+
+
+    def define_stimulus(self):
+        self.x_transform = tf.constant(par['x_transform'])
+        self.y_transform = tf.constant(par['y_transform'])
+
+
+    def simulate_step(self, actions, mask):
+
+        actions = actions * mask
+
+        delta_x = tf.reduce_sum(actions @ self.x_transform, axis=1)
+        delta_y = tf.reduce_sum(actions @ self.y_transform, axis=1)
+
+        locations_x = tf.cast(self.locations[:,0], tf.float32) + delta_x
+        locations_y = tf.cast(self.locations[:,1], tf.float32) + delta_y
+
+        locations_x = tf.clip_by_value(locations_x, 0., tf.constant(par['room_width']-1.))
+        locations_y = tf.clip_by_value(locations_y, 0., tf.constant(par['room_height']-1.))
+
+        self.locations = tf.cast(tf.stack([locations_x, locations_y], axis=1), tf.int32)
+        self.location_history.append(self.locations)
+
+        x_vector = tf.one_hot(self.locations[:,0], par['room_width'])
+        y_vector = tf.one_hot(self.locations[:,1], par['room_height'])
+
+        state = tf.reshape(x_vector, [par['batch_size'], par['room_width'], 1]) \
+              * tf.reshape(y_vector, [par['batch_size'], 1, par['room_height']])
+
+        reward = actions[:,-1] * tf.reduce_sum(state * self.reward_scores, axis=(1,2))
+
+        return reward
+
+
+    def make_stimulus(self):
+
+        stim_x0 = self.locations[:,0]
+        stim_x1 = (tf.constant(par['room_width'])-1) - tf.cast(self.locations[:,0], tf.int32)
+        stim_y0 = self.locations[:,1]
+        stim_y1 = (tf.constant(par['room_height'])-1) - tf.cast(self.locations[:,1], tf.int32)
+
+        x_vector = tf.cast(tf.one_hot(self.locations[:,0], par['room_width']), tf.int32)
+        y_vector = tf.cast(tf.one_hot(self.locations[:,1], par['room_height']), tf.int32)
+
+        state = tf.reshape(x_vector, [par['batch_size'], par['room_width'], 1, 1]) \
+              * tf.reshape(y_vector, [par['batch_size'], 1, par['room_height'], 1])
+
+        reward_stim = tf.reduce_sum(tf.cast(state, tf.float32) * self.reward_vectors, axis=(1,2))
+
+        stim = tf.stack([stim_x0, stim_x1, stim_y0, stim_y1], axis=1)
+        stim = tf.concat([tf.cast(stim, tf.float32), reward_stim], axis=1)
+
+        return stim
 
 
     def declare_variables(self):
@@ -72,9 +130,7 @@ class Model:
         for t in range(par['num_time_steps']):
             
             # Load input data for this time step
-            with tf.device('/cpu:0'):
-                inputs, = tf.py_func(stimulus_env.make_inputs, [], [tf.float32])
-                inputs  = tf.reshape(inputs, shape=[par['batch_size'],par['n_input']])
+            inputs = tf.stop_gradient(self.make_stimulus())
 
             # Update the recurrent cell state
             h, c = self.predictive_cell(inputs, h, c)
@@ -92,9 +148,8 @@ class Model:
             continue_trial  = tf.cast(tf.equal(reward, 0.), tf.float32)
             mask           *= continue_trial
 
-            with tf.device('/cpu:0'):
-                feedback_reward, = tf.py_func(stimulus_env.agent_action, [action, mask], [tf.float32])
-                feedback_reward  = tf.reshape(feedback_reward, shape=[par['batch_size'],1])
+            # Calculate new state and reward
+            feedback_reward = tf.expand_dims(tf.stop_gradient(self.simulate_step(action, mask)), axis=1)
             reward = feedback_reward*mask*tf.reshape(self.time_mask[t],[par['batch_size'],1])
 
             # Record RL inputs and outputs
@@ -195,10 +250,14 @@ def main(gpu_id=None):
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8) if gpu_id == '0' else tf.GPUOptions()
     with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
 
+        locs = tf.placeholder(tf.float32, shape=par['starting_locations'].shape, name='starting_locs')
+        rews = tf.placeholder(tf.float32, shape=par['reward_scores'].shape, name='reward_scores')
+        vecs = tf.placeholder(tf.float32, shape=par['reward_vectors'].shape, name='reward_vectors')
+
         # Select CPU or GPU
         device = '/cpu:0' if gpu_id is None else '/gpu:0'
         with tf.device(device):
-            model = Model()
+            model = Model(locs, rews, vecs)
 
         # Initialize variables and start the timer
         sess.run(tf.global_variables_initializer())
@@ -207,23 +266,19 @@ def main(gpu_id=None):
         # Run training loop
         for i in range(par['n_train_batches']):
 
-            # Discontinue training if no longer necessary
-            if i > 5001:
-                if np.mean(accuracy_record[-5000:]) > 0.98:
-                    print('Accuracy threshold 98% after 5000 iters reached.')
-                    break
-            elif i > 25001:
-                if np.mean(accuracy_record[-20:]) > 0.95:
-                    print('Accuracy threshold 95% after 25000 iters reached.')
-
             # Refresh stimulus environment
-            stimulus_env.place_agents()
-            stimulus_env.place_rewards()
+            starting_locations, reward_scores, reward_vectors = refresh_reward_locations()
+            #print(np.mean(np.argmax(par['reward_scores'])))
+            feed_dict = {locs:starting_locations, rews:reward_scores, vecs:reward_vectors}
 
             # Calculate and apply gradients
-            _, total_loss, hidden_state, reward, action, pol_loss, val_loss, entropy_loss \
-                 = sess.run([model.train_op, model.total_loss, model.h, model.reward, \
-                    model.action, model.pol_loss, model.val_loss, model.entropy_loss])
+            _, total_loss, hidden_state, reward, action, pol_loss, val_loss, entropy_loss, \
+                location_history, inputs \
+                = sess.run([model.train_op, model.total_loss, model.h, model.reward, \
+                    model.action, model.pol_loss, model.val_loss, model.entropy_loss, \
+                    model.location_history, model.input_data], feed_dict=feed_dict)
+
+
 
             # Process network response
             reward = np.stack(reward)
